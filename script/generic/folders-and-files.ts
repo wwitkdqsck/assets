@@ -4,8 +4,10 @@ import {
 } from "../generic/filesystem";
 import { CheckStepInterface, ActionInterface } from "../generic/interface";
 import {
-    chainsPath,
+    allChains,
+    dappsPath,
     getChainLogoPath,
+    getChainAssetInfoPath,
     getChainAssetsPath,
     getChainAssetPath,
     getChainAssetLogoPath,
@@ -16,9 +18,8 @@ import {
 } from "../generic/repo-structure";
 import { isLogoOK } from "../generic/image";
 import { isLowerCase } from "../generic/types";
+import { readJsonFile } from "../generic/json";
 import * as bluebird from "bluebird";
-
-const foundChains = readDirSync(chainsPath)
 
 export class FoldersFiles implements ActionInterface {
     getName(): string { return "Folders and Files"; }
@@ -42,7 +43,7 @@ export class FoldersFiles implements ActionInterface {
                 getName: () => { return "Chain folders are lowercase, contain only predefined list of files"},
                 check: async () => {
                     const errors: string[] = [];
-                    foundChains.forEach(chain => {
+                    allChains.forEach(chain => {
                         if (!isLowerCase(chain)) {
                             errors.push(`Chain folder must be in lowercase "${chain}"`);
                         }
@@ -59,7 +60,7 @@ export class FoldersFiles implements ActionInterface {
                 getName: () => { return "Chain folders have logo, and correct size"},
                 check: async () => {
                     const errors: string[] = [];
-                    await bluebird.each(foundChains, async (chain) => {
+                    await bluebird.each(allChains, async (chain) => {
                         const chainLogoPath = getChainLogoPath(chain);
                         if (!isPathExistsSync(chainLogoPath)) {
                             errors.push(`File missing at path "${chainLogoPath}"`);
@@ -73,21 +74,46 @@ export class FoldersFiles implements ActionInterface {
                 }
             },
             {
-                getName: () => { return "Asset folders contain logo"},
+                getName: () => { return "Asset folders contain logo and info"},
                 check: async () => {
                     const errors: string[] = [];
-                    foundChains.forEach(chain => {
+                    const warnings: string[] = [];
+                    allChains.forEach(chain => {
                         const assetsPath = getChainAssetsPath(chain);
                         if (isPathExistsSync(assetsPath)) {
                             readDirSync(assetsPath).forEach(address => {
                                 const logoFullPath = getChainAssetLogoPath(chain, address);
-                                if (!isPathExistsSync(logoFullPath)) {
-                                    errors.push(`Missing logo file for asset '${chain}/${address}' -- ${logoFullPath}`);
+                                const logoExists = isPathExistsSync(logoFullPath);
+                                const infoFullPath = getChainAssetInfoPath(chain, address);
+                                const infoExists = isPathExistsSync(infoFullPath);
+                                // Assets should have a logo and an info file.  Exceptions:
+                                // - status=spam tokens may have no logo 
+                                // - on some chains some valid tokens have no info (should be fixed)
+                                if (!infoExists || !logoExists) {
+                                    if (!infoExists && logoExists) {
+                                        const msg = `Missing info file for asset '${chain}/${address}' -- ${infoFullPath}`;
+                                        // enforce that info must be present (with some exceptions)
+                                        if (chain === 'terra') {
+                                            //console.log(msg);
+                                            warnings.push(msg);
+                                        } else {
+                                            console.log(msg);
+                                            errors.push(msg);
+                                        }
+                                    }
+                                    if (!logoExists && infoExists) {
+                                        const info: unknown = readJsonFile(infoFullPath);
+                                        if (!info['status'] || info['status'] !== 'spam') {
+                                            const msg = `Missing logo file for non-spam asset '${chain}/${address}' -- ${logoFullPath}`;
+                                            console.log(msg);
+                                            errors.push(msg);
+                                        }
+                                    }
                                 }
-                            }) ;
+                            });
                         }
                     });
-                    return [errors, []];
+                    return [errors, warnings];
                 }
             },
             /*
@@ -95,7 +121,7 @@ export class FoldersFiles implements ActionInterface {
                 getName: () => { return "Asset folders contain info.json"},
                 check: async () => {
                     const warnings: string[] = [];
-                    foundChains.forEach(chain => {
+                    allChains.forEach(chain => {
                         const assetsPath = getChainAssetsPath(chain);
                         if (isPathExistsSync(assetsPath)) {
                             readDirSync(assetsPath).forEach(address => {
@@ -103,7 +129,7 @@ export class FoldersFiles implements ActionInterface {
                                 if (!isPathExistsSync(infoFullPath)) {
                                     warnings.push(`Missing info file for asset '${chain}/${address}' -- ${infoFullPath}`);
                                 }
-                            }) ;
+                            });
                         }
                     });
                     return [[], warnings];
@@ -114,7 +140,7 @@ export class FoldersFiles implements ActionInterface {
                 getName: () => { return "Asset folders contain only predefined set of files"},
                 check: async () => {
                     const errors: string[] = [];
-                    foundChains.forEach(chain => {
+                    allChains.forEach(chain => {
                         const assetsPath = getChainAssetsPath(chain);
                         if (isPathExistsSync(assetsPath)) {
                             readDirSync(assetsPath).forEach(address => {
@@ -124,9 +150,26 @@ export class FoldersFiles implements ActionInterface {
                                         errors.push(`File '${assetFolderFile}' not allowed at this path: ${assetsPath}`);
                                     }
                                 });
-                            }) ;
+                            });
                         }
                     });
+                    return [errors, []];
+                }
+            },
+            {
+                getName: () => { return "Dapps folders contain only .png files, with all lowercase names"},
+                check: async () => {
+                    const errors: string[] = [];
+                    if (isPathExistsSync(dappsPath)) {
+                        readDirSync(dappsPath).forEach(filename => {
+                            if (!filename.endsWith('.png')) {
+                                errors.push(`File '${filename}' has invalid extension; ${dappsPath}`);
+                            }
+                            if (filename.toLowerCase() != filename) {
+                                errors.push(`File '${filename}' is not all-lowercase; ${dappsPath}`);
+                            }
+                        });
+                    }
                     return [errors, []];
                 }
             }
