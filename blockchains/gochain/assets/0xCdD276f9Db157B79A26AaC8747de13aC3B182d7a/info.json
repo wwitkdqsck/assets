@@ -1,0 +1,11 @@
+{
+    "name": "Fast.Finance 5% interest bearing token",
+    "symbol": "INT5",
+    "type": "GO20",
+    "decimals": 18,
+    "description": "Fast.Finance 5% interest bearing token",
+    "website": "https://fast.finance/",
+    "explorer": "https://explorer.gochain.io/addr/0xCdD276f9Db157B79A26AaC8747de13aC3B182d7a",
+    "status": "active",
+    "id": "0xCdD276f9Db157B79A26AaC8747de13aC3B182d7a"
+}
