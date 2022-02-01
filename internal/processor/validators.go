@@ -2,19 +2,18 @@ package processor
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 
+	filelib "github.com/trustwallet/assets-go-libs/file"
 	"github.com/trustwallet/assets-go-libs/path"
 	"github.com/trustwallet/assets-go-libs/validation"
 	"github.com/trustwallet/assets-go-libs/validation/info"
 	"github.com/trustwallet/assets-go-libs/validation/list"
+	"github.com/trustwallet/assets-go-libs/validation/tokenlist"
 	"github.com/trustwallet/assets/internal/config"
 	"github.com/trustwallet/assets/internal/file"
 	"github.com/trustwallet/go-primitives/coin"
-	"github.com/trustwallet/go-primitives/types"
 )
 
 func (s *Service) ValidateJSON(f *file.AssetFile) error {
@@ -30,7 +29,7 @@ func (s *Service) ValidateJSON(f *file.AssetFile) error {
 		return err
 	}
 
-	err = validation.ValidateJson(buf.Bytes())
+	err = validation.ValidateJSON(buf.Bytes())
 	if err != nil {
 		return err
 	}
@@ -39,13 +38,7 @@ func (s *Service) ValidateJSON(f *file.AssetFile) error {
 }
 
 func (s *Service) ValidateRootFolder(f *file.AssetFile) error {
-	file, err := os.Open(f.Path())
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	dirFiles, err := file.ReadDir(0)
+	dirFiles, err := filelib.ReadDir(f.Path())
 	if err != nil {
 		return err
 	}
@@ -117,13 +110,7 @@ func (s *Service) ValidateImage(f *file.AssetFile) error {
 }
 
 func (s *Service) ValidateAssetFolder(f *file.AssetFile) error {
-	file, err := os.Open(f.Path())
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	dirFiles, err := file.ReadDir(0)
+	dirFiles, err := filelib.ReadDir(f.Path())
 	if err != nil {
 		return err
 	}
@@ -144,25 +131,10 @@ func (s *Service) ValidateAssetFolder(f *file.AssetFile) error {
 	errLogo := validation.ValidateHasFiles(dirFiles, []string{"logo.png"})
 
 	if errLogo != nil || errInfo != nil {
-		file2, err := os.Open(path.GetAssetInfoPath(f.Chain().Handle, f.Asset()))
-		if err != nil {
-			return err
-		}
-		defer file2.Close()
-
-		_, err = file2.Seek(0, io.SeekStart)
-		if err != nil {
-			return err
-		}
-
-		b, err := io.ReadAll(file2)
-		if err != nil {
-			return err
-		}
+		assetInfoPath := path.GetAssetInfoPath(f.Chain().Handle, f.Asset())
 
 		var infoJson info.AssetModel
-		err = json.Unmarshal(b, &infoJson)
-		if err != nil {
+		if err = filelib.ReadJSONFile(assetInfoPath, &infoJson); err != nil {
 			return err
 		}
 
@@ -179,18 +151,13 @@ func (s *Service) ValidateAssetFolder(f *file.AssetFile) error {
 }
 
 func (s *Service) ValidateDappsFolder(f *file.AssetFile) error {
-	file, err := os.Open(f.Path())
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	dirFiles, err := file.ReadDir(0)
+	dirFiles, err := filelib.ReadDir(f.Path())
 	if err != nil {
 		return err
 	}
 
 	var compErr = validation.NewErrComposite()
+
 	for _, dirFile := range dirFiles {
 		err = validation.ValidateExtension(dirFile.Name(), config.Default.ValidatorsSettings.DappsFolder.Ext)
 		if err != nil {
@@ -211,35 +178,22 @@ func (s *Service) ValidateDappsFolder(f *file.AssetFile) error {
 }
 
 func (s *Service) ValidateChainInfoFile(f *file.AssetFile) error {
-	file, err := os.Open(f.Path())
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	buf := bytes.NewBuffer(nil)
-	_, err = buf.ReadFrom(file)
-	if err != nil {
+	var coinInfo info.CoinModel
+	if err := filelib.ReadJSONFile(f.Path(), &coinInfo); err != nil {
 		return err
 	}
 
-	_, err = file.Seek(0, io.SeekStart)
+	receivedTags, err := s.assetsManager.GetTagValues()
 	if err != nil {
-		return fmt.Errorf("%w: failed to seek reader", validation.ErrInvalidJson)
+		return fmt.Errorf("failed to get tag values: %w", err)
 	}
 
-	var payload info.CoinModel
-	err = json.Unmarshal(buf.Bytes(), &payload)
-	if err != nil {
-		return fmt.Errorf("%w: failed to decode", err)
-	}
-
-	tags := make([]string, len(config.Default.ValidatorsSettings.CoinInfoFile.Tags))
-	for i, t := range config.Default.ValidatorsSettings.CoinInfoFile.Tags {
+	tags := make([]string, len(receivedTags.Tags))
+	for i, t := range receivedTags.Tags {
 		tags[i] = t.ID
 	}
 
-	err = info.ValidateCoin(payload, f.Chain(), f.Asset(), tags)
+	err = info.ValidateCoin(coinInfo, tags)
 	if err != nil {
 		return err
 	}
@@ -248,29 +202,12 @@ func (s *Service) ValidateChainInfoFile(f *file.AssetFile) error {
 }
 
 func (s *Service) ValidateAssetInfoFile(f *file.AssetFile) error {
-	file, err := os.Open(f.Path())
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	buf := bytes.NewBuffer(nil)
-	if _, err = buf.ReadFrom(file); err != nil {
+	var assetInfo info.AssetModel
+	if err := filelib.ReadJSONFile(f.Path(), &assetInfo); err != nil {
 		return err
 	}
 
-	_, err = file.Seek(0, io.SeekStart)
-	if err != nil {
-		return fmt.Errorf("%w: failed to seek reader", validation.ErrInvalidJson)
-	}
-
-	var payload info.AssetModel
-	err = json.Unmarshal(buf.Bytes(), &payload)
-	if err != nil {
-		return fmt.Errorf("%w: failed to decode", err)
-	}
-
-	err = info.ValidateAsset(payload, f.Chain(), f.Asset())
+	err := info.ValidateAsset(assetInfo, f.Chain(), f.Asset())
 	if err != nil {
 		return err
 	}
@@ -279,28 +216,16 @@ func (s *Service) ValidateAssetInfoFile(f *file.AssetFile) error {
 }
 
 func (s *Service) ValidateValidatorsListFile(f *file.AssetFile) error {
-	file, err := os.Open(f.Path())
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
 	if !isStackingChain(f.Chain()) {
 		return nil
 	}
 
-	buf := bytes.NewBuffer(nil)
-	if _, err = buf.ReadFrom(file); err != nil {
-		return err
-	}
-
 	var model []list.Model
-	err = json.Unmarshal(buf.Bytes(), &model)
-	if err != nil {
+	if err := filelib.ReadJSONFile(f.Path(), &model); err != nil {
 		return err
 	}
 
-	err = list.ValidateList(model)
+	err := list.ValidateList(model)
 	if err != nil {
 		return err
 	}
@@ -313,18 +238,12 @@ func (s *Service) ValidateValidatorsListFile(f *file.AssetFile) error {
 	assetsPath := path.GetValidatorAssetsPath(f.Chain().Handle)
 	assetFolder := s.fileService.GetAssetFile(assetsPath)
 
-	file2, err := os.Open(assetFolder.Path())
-	if err != nil {
-		return err
-	}
-	defer file2.Close()
-
-	dirAssetFolderFiles, err := file2.ReadDir(0)
+	dirFiles, err := filelib.ReadDir(assetFolder.Path())
 	if err != nil {
 		return err
 	}
 
-	err = validation.ValidateAllowedFiles(dirAssetFolderFiles, listIDs)
+	err = validation.ValidateAllowedFiles(dirFiles, listIDs)
 	if err != nil {
 		return err
 	}
@@ -343,134 +262,43 @@ func isStackingChain(c coin.Coin) bool {
 }
 
 func (s *Service) ValidateTokenListFile(f *file.AssetFile) error {
-	file, err := os.Open(f.Path())
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	buf := bytes.NewBuffer(nil)
-	if _, err = buf.ReadFrom(file); err != nil {
-		return err
-	}
-
-	var model TokenList
-	err = json.Unmarshal(buf.Bytes(), &model)
+	var tokenList tokenlist.Model
+	err := filelib.ReadJSONFile(f.Path(), &tokenList)
 	if err != nil {
 		return err
 	}
 
-	err = checkTokenListAssets(model, f)
-	if err != nil {
-		return err
-	}
-
-	err = checkTokenListPairs(model)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func checkTokenListAssets(model TokenList, f *file.AssetFile) error {
-	compErr := validation.NewErrComposite()
-
-	for _, token := range model.Tokens {
-		var assetPath string
-
-		if token.Type == types.Coin {
-			assetPath = path.GetChainInfoPath(f.Chain().Handle)
-		} else {
-			assetPath = path.GetAssetInfoPath(f.Chain().Handle, token.Address)
-		}
-
-		infoFile, err := os.Open(assetPath)
+	tokenListExtendedPath := path.GetTokenListPath(f.Chain().Handle, path.TokenlistExtended)
+	if filelib.Exists(tokenListExtendedPath) {
+		var tokenListExtended tokenlist.Model
+		err = filelib.ReadJSONFile(tokenListExtendedPath, &tokenListExtended)
 		if err != nil {
 			return err
 		}
 
-		buf := bytes.NewBuffer(nil)
-		if _, err = buf.ReadFrom(infoFile); err != nil {
-			return err
+		tokensMap := make(map[string]bool)
+		for _, token := range tokenListExtended.Tokens {
+			tokensMap[token.Asset] = true
 		}
 
-		infoFile.Close()
-
-		var infoAsset info.AssetModel
-		err = json.Unmarshal(buf.Bytes(), &infoAsset)
-		if err != nil {
-			return err
-		}
-
-		if string(token.Type) != *infoAsset.Type {
-			compErr.Append(fmt.Errorf("field type - '%s' differs from '%s' in %s",
-				token.Type, *infoAsset.Type, assetPath))
-		}
-
-		if token.Symbol != *infoAsset.Symbol {
-			compErr.Append(fmt.Errorf("field symbol - '%s' differs from '%s' in %s",
-				token.Symbol, *infoAsset.Symbol, assetPath))
-		}
-
-		if token.Decimals != uint(*infoAsset.Decimals) {
-			compErr.Append(fmt.Errorf("field decimals - '%d' differs from '%d' in %s",
-				token.Decimals, *infoAsset.Decimals, assetPath))
-		}
-
-		if token.Name != *infoAsset.Name {
-			compErr.Append(fmt.Errorf("field name - '%s' differs from '%s' in %s",
-				token.Name, *infoAsset.Name, assetPath))
-		}
-
-		if infoAsset.GetStatus() != activeStatus {
-			compErr.Append(fmt.Errorf("token '%s' is not active, remove it from %s", token.Address, f.Path()))
+		for _, token := range tokenList.Tokens {
+			if _, exists := tokensMap[token.Asset]; exists {
+				return fmt.Errorf("duplicate asset: %s from %s, already exist in %s",
+					token.Asset, f.Path(), tokenListExtendedPath)
+			}
 		}
 	}
 
-	if compErr.Len() > 0 {
-		return compErr
-	}
-
-	return nil
-}
-
-func checkTokenListPairs(model TokenList) error {
-	compErr := validation.NewErrComposite()
-
-	tokensMap := make(map[string]struct{})
-	for _, t := range model.Tokens {
-		tokensMap[t.Asset] = struct{}{}
-	}
-
-	pairs := make(map[string]string)
-	for _, t := range model.Tokens {
-		for _, pair := range t.Pairs {
-			pairs[pair.Base] = t.Address
-		}
-	}
-
-	for pairToken, token := range pairs {
-		if _, exists := tokensMap[pairToken]; !exists {
-			compErr.Append(fmt.Errorf("token '%s' contains non-existing pair token '%s'", token, pairToken))
-		}
-	}
-
-	if compErr.Len() > 0 {
-		return compErr
+	err = tokenlist.ValidateTokenList(tokenList, f.Chain(), f.Path())
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (s *Service) ValidateInfoFolder(f *file.AssetFile) error {
-	file, err := os.Open(f.Path())
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	dirFiles, err := file.ReadDir(0)
+	dirFiles, err := filelib.ReadDir(f.Path())
 	if err != nil {
 		return err
 	}
@@ -484,13 +312,7 @@ func (s *Service) ValidateInfoFolder(f *file.AssetFile) error {
 }
 
 func (s *Service) ValidateValidatorsAssetFolder(f *file.AssetFile) error {
-	file, err := os.Open(f.Path())
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	dirFiles, err := file.ReadDir(0)
+	dirFiles, err := filelib.ReadDir(f.Path())
 	if err != nil {
 		return err
 	}
