@@ -1,0 +1,11 @@
+{
+    "name": "GoBearsX",
+    "symbol": "GOBX",
+    "type": "GO20",
+    "decimals": 18,
+    "description": "GoBears’s mission is to create more NFTs Projects on Zeromint",
+    "website": "https://www.gobears.club/",
+    "explorer": "https://explorer.gochain.io/addr/0x60f1656abC206D7923eD06C543DDf7dB2c746712",
+    "status": "active",
+    "id": "0x60f1656abC206D7923eD06C543DDf7dB2c746712"
+}
