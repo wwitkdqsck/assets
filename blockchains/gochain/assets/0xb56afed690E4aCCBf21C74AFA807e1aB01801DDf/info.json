@@ -1,0 +1,11 @@
+{
+    "name": "GoWankers",
+    "symbol": "GWKS",
+    "type": "GO20",
+    "decimals": 18,
+    "description": "GoWanker’s mission and motive is to create more FUDs and Fake News surrounding GoChain and Zeromint",
+    "website": "https://explorer.gochain.io/addr/0xb56afed690E4aCCBf21C74AFA807e1aB01801DDf",
+    "explorer": "https://explorer.gochain.io/addr/0xb56afed690E4aCCBf21C74AFA807e1aB01801DDf",
+    "status": "active",
+    "id": "0xb56afed690E4aCCBf21C74AFA807e1aB01801DDf"
+}
